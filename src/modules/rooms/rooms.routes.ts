@@ -2,7 +2,13 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { createOpenAPIApp } from "../../lib/openapi";
 import { requireAuth } from "../../middlewares/auth";
 import { supabaseAdmin } from "../../lib/supabase";
-import { AddMemberSchema, UpdateMemberRoleSchema } from "./rooms.schema";
+import {
+  AddMemberSchema,
+  ToggleFavoriteSchema,
+  ToggleMuteSchema,
+  TogglePinSchema,
+  UpdateMemberRoleSchema,
+} from "./rooms.schema";
 import { getMemberRole } from "./helpers";
 
 const roomsApp = createOpenAPIApp();
@@ -511,8 +517,6 @@ roomsApp.openapi(updateMemberRoleRoute, async (c) => {
   );
 });
 
-import { nanoid } from "nanoid"; // یا روش رندوم رشته دلخواه شما
-
 /* ==========================================================================
    ریست کردن کد دعوت گروه (Invite Code)
    ========================================================================== */
@@ -612,6 +616,214 @@ roomsApp.openapi(getRoomMembersRoute, async (c) => {
   }
 
   return c.json({ members: members || [] }, 200);
+});
+
+/* ==========================================================================
+   ۱. سنجاق کردن یا برداشتن سنجاق چت (Pin / Unpin Room)
+   ========================================================================== */
+const togglePinRoute = createRoute({
+  method: "patch",
+  path: "/:roomId/pin",
+  tags: ["Rooms"],
+  summary: "پین یا آن‌پین کردن چت برای کاربر جاری",
+  security: [{ Bearer: [] }],
+  request: {
+    params: z.object({
+      roomId: z.string().uuid(),
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: TogglePinSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "وضعیت پین با موفقیت تغییر کرد",
+      content: {
+        "application/json": {
+          schema: z.object({
+            message: z.string(),
+            is_pinned: z.boolean(),
+            pinned_at: z.string().nullable(),
+          }),
+        },
+      },
+    },
+    403: { description: "شما عضو این چت نیستید" },
+    500: { description: "خطای سرور" },
+  },
+});
+
+roomsApp.openapi(togglePinRoute, async (c) => {
+  const currentUserId = c.get("userId");
+  const { roomId } = c.req.valid("param");
+  const { is_pinned } = c.req.valid("json");
+
+  const pinnedAt = is_pinned ? new Date().toISOString() : null;
+
+  const { data, error } = await supabaseAdmin
+    .from("room_members")
+    .update({
+      is_pinned,
+      pinned_at: pinnedAt,
+    })
+    .eq("room_id", roomId)
+    .eq("user_id", currentUserId)
+    .select("is_pinned, pinned_at")
+    .maybeSingle();
+
+  if (error) {
+    return c.json({ error: error.message }, 500);
+  }
+
+  if (!data) {
+    return c.json({ error: "شما عضو این گفتگو نیستید" }, 403);
+  }
+
+  return c.json(
+    {
+      message: is_pinned ? "چت سنجاق شد" : "چت از حالت سنجاق خارج شد",
+      is_pinned: data.is_pinned,
+      pinned_at: data.pinned_at,
+    },
+    200,
+  );
+});
+
+/* ==========================================================================
+   ۲. افزودن/حذف از علاقه‌مندی‌ها (Favorite / Unfavorite Room)
+   ========================================================================== */
+const toggleFavoriteRoute = createRoute({
+  method: "patch",
+  path: "/:roomId/favorite",
+  tags: ["Rooms"],
+  summary: "افزودن به یا حذف از علاقه‌مندی‌ها",
+  security: [{ Bearer: [] }],
+  request: {
+    params: z.object({
+      roomId: z.string().uuid(),
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: ToggleFavoriteSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "وضعیت علاقه‌مندی تغییر کرد",
+      content: {
+        "application/json": {
+          schema: z.object({
+            message: z.string(),
+            is_favorite: z.boolean(),
+          }),
+        },
+      },
+    },
+    403: { description: "شما عضو این چت نیستید" },
+    500: { description: "خطای سرور" },
+  },
+});
+
+roomsApp.openapi(toggleFavoriteRoute, async (c) => {
+  const currentUserId = c.get("userId");
+  const { roomId } = c.req.valid("param");
+  const { is_favorite } = c.req.valid("json");
+
+  const { data, error } = await supabaseAdmin
+    .from("room_members")
+    .update({ is_favorite })
+    .eq("room_id", roomId)
+    .eq("user_id", currentUserId)
+    .select("is_favorite")
+    .maybeSingle();
+
+  if (error) {
+    return c.json({ error: error.message }, 500);
+  }
+
+  if (!data) {
+    return c.json({ error: "شما عضو این گفتگو نیستید" }, 403);
+  }
+
+  return c.json(
+    {
+      message: is_favorite
+        ? "به علاقه‌مندی‌ها اضافه شد"
+        : "از علاقه‌مندی‌ها حذف شد",
+      is_favorite: data.is_favorite,
+    },
+    200,
+  );
+});
+
+/* ==========================================================================
+   ۳. بی‌صدا کردن چت (Mute / Unmute Room)
+   ========================================================================== */
+const toggleMuteRoute = createRoute({
+  method: "patch",
+  path: "/:roomId/mute",
+  tags: ["Rooms"],
+  summary: "بی‌صدا کردن یا فعال‌سازی نوتیفیکیشن چت",
+  security: [{ Bearer: [] }],
+  request: {
+    params: z.object({
+      roomId: z.string().uuid(),
+    }),
+    body: {
+      content: {
+        "application/json": {
+          schema: ToggleMuteSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "وضعیت بی‌صدا تغییر کرد",
+      content: {
+        "application/json": {
+          schema: z.object({
+            message: z.string(),
+            is_muted: z.boolean(),
+          }),
+        },
+      },
+    },
+    403: { description: "شما عضو این چت نیستید" },
+  },
+});
+
+roomsApp.openapi(toggleMuteRoute, async (c) => {
+  const currentUserId = c.get("userId");
+  const { roomId } = c.req.valid("param");
+  const { is_muted } = c.req.valid("json");
+
+  const { data, error } = await supabaseAdmin
+    .from("room_members")
+    .update({ is_muted })
+    .eq("room_id", roomId)
+    .eq("user_id", currentUserId)
+    .select("is_muted")
+    .maybeSingle();
+
+  if (error || !data) {
+    return c.json({ error: "خطا در به‌روزرسانی یا عدم عضویت در چت" }, 403);
+  }
+
+  return c.json(
+    {
+      message: is_muted ? "اعلان‌های این چت بی‌صدا شد" : "اعلان‌های چت فعال شد",
+      is_muted: data.is_muted,
+    },
+    200,
+  );
 });
 
 export default roomsApp;

@@ -31,3 +31,27 @@ export const RoomMemberResponseSchema = z.object({
     avatar_url: z.string().nullable(),
   }),
 });
+
+// اسکیمای تغییر وضعیت Pin
+export const TogglePinSchema = z.object({
+  is_pinned: z.boolean().openapi({
+    example: true,
+    description: "آیا چت سنجاق شود یا خیر",
+  }),
+});
+
+// اسکیمای تغییر وضعیت Favorite
+export const ToggleFavoriteSchema = z.object({
+  is_favorite: z.boolean().openapi({
+    example: true,
+    description: "آیا چت به علاقه‌مندی‌ها اضافه شود یا خیر",
+  }),
+});
+
+// اسکیمای تغییر وضعیت Mute
+export const ToggleMuteSchema = z.object({
+  is_muted: z.boolean().openapi({
+    example: true,
+    description: "بی‌صدا کردن چت",
+  }),
+});
